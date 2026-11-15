@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="ko">
+<style>[hidden]{display:none!important}body{margin:0}</style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>알록달록 블록 탐험 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap">
+<style>
+/* Layout: one full-screen first-person view. Status pills float along the top,
+   move and jump controls sit in the bottom corners, menus open as cards over the world. */
+:root{
+  color-scheme:dark;
+  --night:#10142b; --panel:#1a2145; --panel-2:#252e5e; --line:#3b4788;
+  --glass:rgba(16,20,43,.78); --scrim:rgba(8,10,26,.72);
+  --text:#fff8e7; --muted:#aab4e0; --on-bright:#2a1500;
+  --candy:#ff5fa2; --sun:#ffd23f; --mint:#3ddc97; --sky:#5ec8ff; --danger:#ff7b7b;
+  --fur:#ffb347; --fur-dark:#8a4a12; --bean:#ff8fb8;
+  --font:'Jua','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',system-ui,sans-serif;
+}
+html,body{height:100%}
+body{background:var(--night);color:var(--text);font-family:var(--font);font-size:15px;line-height:1.35;
+  overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+*{box-sizing:border-box}
+button{font-family:inherit}
+:focus-visible{outline:3px solid var(--sky);outline-offset:2px}
+
+#app{position:relative;width:100%;height:100%;overflow:hidden;
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px))}
+#view{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#flash{position:absolute;inset:0;background:var(--text);opacity:0;pointer-events:none;transition:opacity .45s;z-index:8}
+#flash.on{opacity:1;transition:opacity .12s}
+
+/* ---- top HUD ---- */
+#top{position:relative;z-index:5;display:flex;flex-direction:column;gap:8px;padding-block:10px 0;pointer-events:none}
+#hud,#sub{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+#sub{align-items:flex-start;flex-wrap:nowrap}
+.group{display:flex;gap:6px;align-items:center;flex-wrap:wrap;pointer-events:auto}
+.pill{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:18px;
+  background:var(--glass);border:2px solid var(--line);font-size:16px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.pill.zone{background:var(--candy);border-color:var(--text);color:var(--night)}
+.pill b{font-weight:400}
+.pill.coin b{color:var(--sun)} .pill.score b{color:var(--candy)}
+.bump{animation:bump .3s}
+@keyframes bump{50%{transform:scale(1.18)}}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:40px;padding:0 14px;border-radius:14px;
+  border:0;border-bottom:4px solid rgba(0,0,0,.32);font-size:16px;color:var(--text);background:var(--panel-2);cursor:pointer;white-space:nowrap}
+.btn:active{transform:translateY(2px);border-bottom-width:2px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.sun{background:var(--sun);color:var(--on-bright)}
+.btn.mint{background:var(--mint);color:var(--on-bright)}
+.btn.candy{background:var(--candy);color:var(--night)}
+.btn.sky{background:var(--sky);color:var(--night)}
+.btn.icon{width:40px;padding:0}
+.btn kbd{font-family:inherit;font-size:12px;opacity:.6;display:none}
+.btn .badge{background:var(--night);color:var(--text);border-radius:10px;padding:0 7px;font-size:13px}
+
+#mission{pointer-events:auto;display:flex;align-items:center;gap:8px;min-width:0;max-width:min(340px,calc(100% - 120px));
+  padding:8px 12px;border-radius:16px;background:var(--glass);border:2px solid var(--line);font-size:14px}
+#mission .mtext{min-width:0}
+#mission .bar{height:8px;border-radius:4px;background:var(--panel-2);margin-top:5px;overflow:hidden}
+#mission .bar i{display:block;height:100%;background:var(--mint);border-radius:4px;transition:width .3s}
+#mission .rew{color:var(--sun);white-space:nowrap}
+#minimap{width:104px;height:104px;flex:none;border-radius:50%;border:3px solid var(--text);background:var(--glass);pointer-events:none}
+
+/* ---- world overlays ---- */
+#cross{position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px;border-radius:50%;border:2px solid var(--text);opacity:.7;pointer-events:none;z-index:2}
+#banner{position:absolute;left:0;right:0;top:34%;text-align:center;font-size:clamp(30px,8vw,56px);color:var(--text);
+  text-shadow:0 4px 0 var(--night),0 0 24px var(--night);opacity:0;pointer-events:none;z-index:6;transition:opacity .5s}
+#banner.on{opacity:1}
+#toasts{position:absolute;left:0;right:0;bottom:170px;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none;z-index:30;padding:0 16px}
+#app.menu #toasts{bottom:auto;top:10px}
+.toast{background:var(--night);border:2px solid var(--candy);color:var(--text);padding:8px 16px;border-radius:16px;font-size:16px;text-align:center;animation:toast 2.6s forwards}
+.toast.good{border-color:var(--mint)} .toast.gold{border-color:var(--sun)} .toast.bad{border-color:var(--danger)}
+@keyframes toast{0%{opacity:0;transform:translateY(10px) scale(.9)}8%{opacity:1;transform:none}85%{opacity:1}100%{opacity:0}}
+
+#paws{position:absolute;left:50%;bottom:0;width:0;height:0;pointer-events:none;z-index:3;transform:translateY(var(--bob,0px))}
+.paw{position:absolute;bottom:-52px;width:84px;height:150px;border-radius:42px 42px 12px 12px;border:4px solid var(--fur-dark);
+  background:
+    radial-gradient(circle at 50% 32%, var(--bean) 0 14px, transparent 15px),
+    radial-gradient(circle at 22% 15%, var(--bean) 0 7px, transparent 8px),
+    radial-gradient(circle at 50% 8%, var(--bean) 0 7px, transparent 8px),
+    radial-gradient(circle at 78% 15%, var(--bean) 0 7px, transparent 8px),
+    var(--fur);
+  transition:transform .14s}
+.paw.l{left:-190px;transform:rotate(14deg)} .paw.r{left:106px;transform:rotate(-14deg)}
+#paws.grab .paw.l{transform:translate(46px,-46px) rotate(30deg)} #paws.grab .paw.r{transform:translate(-46px,-46px) rotate(-30deg)}
+
+#stick{position:absolute;width:120px;height:120px;margin:-60px 0 0 -60px;border-radius:50%;background:var(--glass);border:3px solid var(--line);pointer-events:none;z-index:4}
+#knob{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px;border-radius:50%;background:var(--candy);border:3px solid var(--text)}
+#jump{position:absolute;right:max(16px, env(safe-area-inset-right, 0px));bottom:130px;width:72px;height:72px;border-radius:50%;z-index:4;font-size:17px;
+  background:var(--sky);color:var(--night);border:3px solid var(--text);border-bottom-width:7px;cursor:pointer}
+#jump:active{transform:translateY(3px);border-bottom-width:4px}
+#keys{position:absolute;left:max(16px, env(safe-area-inset-left, 0px));bottom:12px;z-index:4;font-size:13px;color:var(--muted);background:var(--glass);
+  border-radius:12px;padding:6px 10px;pointer-events:none}
+
+/* ---- menus ---- */
+.modal{position:absolute;inset:0;z-index:20;display:grid;place-items:center;background:var(--scrim);
+  padding:12px max(16px, env(safe-area-inset-right, 0px)) 12px max(16px, env(safe-area-inset-left, 0px))}
+.card{width:min(540px,100%);max-height:100%;display:flex;flex-direction:column;gap:10px;background:var(--panel);border:3px solid var(--line);
+  border-radius:24px;padding:16px;overflow:hidden}
+.card header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.card h2{margin:0;font-weight:400;font-size:22px;text-wrap:balance}
+.card p{margin:0;color:var(--muted);font-size:14px}
+.list{display:flex;flex-direction:column;gap:8px;overflow-y:auto;touch-action:pan-y;min-height:0;padding-right:2px}
+.row{display:flex;align-items:center;gap:12px;padding:10px;border-radius:16px;background:var(--panel-2);border:2px solid transparent}
+.row.out{opacity:.55}
+.row .pic{flex:none;width:60px;height:60px;display:grid;place-items:center;background:var(--night);border-radius:12px;font-size:28px}
+.row .info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.row .info b{font-weight:400;font-size:16px}
+.row small{color:var(--muted);font-size:13px}
+.row small.good{color:var(--mint)} .row small.bad{color:var(--danger)}
+.row .act{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
+.price{color:var(--sun);white-space:nowrap}
+.tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:9px;background:var(--night);color:var(--muted);margin-left:6px;vertical-align:middle}
+.tag.rare{color:var(--sky)} .tag.epic{color:var(--sun)} .tag.legend{color:var(--candy)}
+.wallet{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-radius:14px;background:var(--night)}
+
+.shape{display:inline-grid;grid-template-columns:repeat(var(--w),var(--px));grid-template-rows:repeat(var(--h),var(--px));gap:2px;vertical-align:middle}
+.shape i{background:var(--c);border-radius:3px;box-shadow:inset 0 2px 0 rgba(255,255,255,.45),inset 0 -2px 0 rgba(0,0,0,.25)}
+.shape.unknown i{background:var(--line);box-shadow:none}
+
+#book{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+#book .slot{aspect-ratio:1;display:grid;place-items:center;background:var(--night);border-radius:12px;border:2px solid var(--line)}
+#book .slot.got{border-color:var(--mint)}
+
+/* puzzle */
+#board{--cell:clamp(26px, calc((100vw - 90px) / 8), 44px);align-self:center;padding:8px;border-radius:18px;background:var(--night);border:3px solid var(--line);touch-action:none}
+#grid{display:grid;grid-template-columns:repeat(8,var(--cell));grid-template-rows:repeat(8,var(--cell));gap:3px;touch-action:none;cursor:pointer}
+#grid.shake{animation:shake .25s}
+@keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+.cell{border-radius:7px;background:var(--panel)}
+.cell.full{background:var(--c);box-shadow:inset 0 3px 0 rgba(255,255,255,.45),inset 0 -3px 0 rgba(0,0,0,.25)}
+.cell.ghost{background:var(--c);opacity:.55}
+.cell.ghost.bad{background:var(--danger);opacity:.5}
+.cell.boom{animation:boom .42s}
+@keyframes boom{0%{background:var(--text);transform:scale(1.25)}100%{background:var(--panel);transform:scale(.4)}}
+#tray{display:flex;gap:8px;overflow-x:auto;touch-action:pan-x;padding:4px 2px 8px;min-height:86px;align-items:stretch}
+.piece{position:relative;flex:none;min-width:76px;height:74px;display:grid;place-items:center;border-radius:14px;background:var(--panel-2);border:3px solid transparent;cursor:pointer;color:var(--text);padding:6px}
+.piece.sel{border-color:var(--candy);background:var(--night)}
+.piece .cnt{position:absolute;right:4px;top:2px;font-size:13px;color:var(--sun)}
+.empty{color:var(--muted);text-align:center;padding:18px 8px;width:100%}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+.btnrow .btn{flex:1}
+
+/* start screen */
+#start{background:linear-gradient(var(--scrim),transparent 45%,var(--scrim))}
+#start .card{background:var(--glass);text-align:center;align-items:center;gap:12px;border-color:var(--text)}
+#title{font-size:clamp(34px,10vw,64px);line-height:1.05;margin:0;font-weight:400;text-shadow:0 4px 0 var(--night)}
+#title span:nth-child(1){color:var(--candy)} #title span:nth-child(2){color:var(--sun)}
+#title span:nth-child(3){color:var(--mint)} #title span:nth-child(4){color:var(--sky)}
+#title em{display:block;font-style:normal;color:var(--text);font-size:.62em;margin-top:6px}
+#start .big{height:56px;font-size:22px;padding:0 34px;border-radius:20px}
+#start ul,.guide ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;text-align:left;font-size:14px;color:var(--text)}
+#start li,.guide li{background:var(--panel-2);padding:8px 12px;border-radius:12px}
+.guide li b{font-weight:400;color:var(--sun)}
+
+@media (hover:hover) and (pointer:fine){ .btn kbd{display:inline} }
+#app:not(.touch) #jump{display:none}
+#app.touch #keys{display:none}
+@media (max-width:520px){
+  .pill{height:32px;font-size:15px;padding:0 10px}
+  .btn{height:38px;font-size:15px;padding:0 11px}
+  #hud .group.menu{width:100%} #hud .group.menu .btn{flex:1}
+  .paw{transform-origin:bottom center}
+  #paws{transform:translateY(var(--bob,0px)) scale(.72)}
+  #minimap{width:88px;height:88px}
+}
+@media (prefers-reduced-motion:reduce){ .toast{animation-duration:2.6s} .bump,.cell.boom,#grid.shake{animation:none} }
+</style>
+
+<div id="app">
+  <canvas id="view"></canvas>
+  <div id="flash"></div>
+  <div id="cross"></div>
+  <div id="banner"></div>
+
+  <div id="top">
+    <div id="hud">
+      <div class="group">
+        <span class="pill zone" id="zoneName">🌲 숲의 초원</span>
+        <span class="pill coin">🪙 <b id="coins">500</b></span>
+        <span class="pill score">⭐ <b id="score">0</b></span>
+      </div>
+      <div class="group menu">
+        <button class="btn sun" id="bShop" type="button">🛒 상점 <kbd>1</kbd></button>
+        <button class="btn mint" id="bBag" type="button">🎒 가방 <kbd>2</kbd></button>
+        <button class="btn candy" id="bPuzzle" type="button">🧩 퍼즐 <span class="badge" id="pieceCount">0</span> <kbd>3</kbd></button>
+        <button class="btn icon" id="bSound" type="button" aria-label="소리 켜기/끄기">🔊</button>
+        <button class="btn icon" id="bGuide" type="button" aria-label="게임 방법">❓</button>
+      </div>
+    </div>
+    <div id="sub">
+      <div id="mission"></div>
+      <canvas id="minimap" width="208" height="208"></canvas>
+    </div>
+  </div>
+
+  <div id="paws"><div class="paw l"></div><div class="paw r"></div></div>
+  <div id="stick" hidden><div id="knob"></div></div>
+  <button id="jump" type="button">점프</button>
+  <div id="keys">WASD 이동 · 마우스로 둘러보기 · Space 점프 · Esc 마우스 풀기</div>
+  <div id="toasts"></div>
+
+  <!-- start -->
+  <div class="modal" id="start">
+    <div class="card">
+      <h1 id="title"><span>알</span><span>록</span><span>달</span><span>록</span><em>블록 탐험 3D</em></h1>
+      <p>고양이 탐험가가 되어 블록을 모으고, 퍼즐판에서 팡! 터뜨려요</p>
+      <button class="btn candy big" id="bStart" type="button">▶ 탐험 시작</button>
+      <ul>
+        <li>🖥️ 컴퓨터: WASD로 걷고, 화면을 누른 채 마우스를 움직여 둘러봐요</li>
+        <li>📱 폰: 화면 왼쪽을 밀면 걷고, 오른쪽을 밀면 둘러봐요</li>
+        <li>✨ 빛기둥이 솟은 곳에 퍼즐 블록이 있어요</li>
+      </ul>
+      <button class="btn" id="bReset" type="button" hidden>처음부터 다시 하기</button>
+    </div>
+  </div>
+
+  <!-- shop -->
+  <div class="modal" id="mShop" hidden>
+    <div class="card">
+      <header><h2>🛒 알록달록 블록 상점</h2><button class="btn icon" data-close type="button" aria-label="닫기">✕</button></header>
+      <div class="wallet"><span>내 코인</span><span class="price">🪙 <span id="shopCoin">0</span></span></div>
+      <div class="list" id="shopList"></div>
+      <p>재고는 30초마다 하나씩 다시 채워져요.</p>
+    </div>
+  </div>
+
+  <!-- bag -->
+  <div class="modal" id="mBag" hidden>
+    <div class="card">
+      <header><h2>🎒 가방과 블록 도감</h2><button class="btn icon" data-close type="button" aria-label="닫기">✕</button></header>
+      <p id="bookText"></p>
+      <div id="book"></div>
+      <div class="list" id="bagList"></div>
+    </div>
+  </div>
+
+  <!-- puzzle -->
+  <div class="modal" id="mPuzzle" hidden>
+    <div class="card">
+      <header><h2>🧩 블록 팡 퍼즐판</h2><button class="btn icon" data-close type="button" aria-label="닫기">✕</button></header>
+      <div class="wallet"><span>가로나 세로 한 줄을 꽉 채우면 팡!</span><span class="price">퍼즐 점수 <span id="pScore">0</span></span></div>
+      <div id="board"><div id="grid"></div></div>
+      <div id="tray"></div>
+      <div class="btnrow">
+        <button class="btn sky" id="bRotate" type="button">🔄 블록 돌리기</button>
+        <button class="btn" id="bClear" type="button">판 비우기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- guide -->
+  <div class="modal" id="mGuide" hidden>
+    <div class="card guide">
+      <header><h2>❓ 게임 방법</h2><button class="btn icon" data-close type="button" aria-label="닫기">✕</button></header>
+      <div class="list">
+        <ul>
+          <li><b>걷기</b> · 컴퓨터는 WASD나 방향키, 폰은 화면 왼쪽을 누르고 밀어요</li>
+          <li><b>둘러보기</b> · 컴퓨터는 화면을 누르면 마우스로 바로 둘러볼 수 있어요 (Esc로 마우스 풀기). 폰은 화면 오른쪽을 밀어요</li>
+          <li><b>블록 줍기</b> · 빛기둥으로 걸어가면 퍼즐 블록을 주워요. 미니맵의 색깔 점이 블록이에요</li>
+          <li><b>퍼즐</b> · 모은 블록을 8x8 판에 놓아요. 한 줄을 꽉 채우면 터지면서 코인을 받아요. 한 번에 여러 줄이면 콤보!</li>
+          <li><b>포탈</b> · 🌀 문으로 들어가면 사막, 얼음 왕국으로 갈 수 있어요</li>
+          <li><b>황금 젤리</b> · 도망가는 황금 젤리를 잡으면 코인 150개!</li>
+          <li><b>우주 열쇠</b> · 상점에서 열쇠를 사면 얼음 왕국의 비밀 포탈이 열려요. 우주에서는 점프가 아주 높아요</li>
+          <li><b>도감</b> · 블록 10종류를 모두 찾으면 보너스 코인 1000개</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const app = $('app'), view = $('view');
+
+/* ================= data ================= */
+const CATALOG = {
+  orange_dot:  { name:'오렌지 콩알 블록', color:'#fb923c', rarity:'normal', desc:'빈칸 하나를 쏙 채우는 1칸 블록', cells:[[0,0]] },
+  pink_corner: { name:'핑크 코너 블록', color:'#f472b6', rarity:'normal', desc:'모서리에 딱 맞는 3칸 블록', cells:[[0,0],[1,0],[0,1]] },
+  yellow_bar:  { name:'옐로우 막대 블록', color:'#facc15', rarity:'normal', desc:'길쭉한 3칸 막대 블록', cells:[[0,0],[1,0],[2,0]] },
+  red_square:  { name:'레드 스퀘어 블록', color:'#ef4444', rarity:'normal', desc:'기본형 2x2 정사각형 블록', cells:[[0,0],[1,0],[0,1],[1,1]] },
+  green_t:     { name:'그린 T 블록', color:'#10b981', rarity:'rare', desc:'T자 모양의 초록빛 퍼즐 블록', cells:[[0,0],[1,0],[2,0],[1,1]] },
+  blue_l:      { name:'블루 L 블록', color:'#3b82f6', rarity:'rare', desc:'ㄴ자 모양의 시원한 파란 블록', cells:[[0,0],[0,1],[0,2],[1,2]] },
+  purple_z:    { name:'퍼플 번개 블록', color:'#a855f7', rarity:'rare', desc:'뜨거운 사막에서만 나오는 번개 모양', cells:[[0,0],[1,0],[1,1],[2,1]] },
+  ice_long:    { name:'아이스 롱 블록', color:'#67e8f9', rarity:'rare', desc:'얼음 왕국에서만 나오는 4칸 막대', cells:[[0,0],[1,0],[2,0],[3,0]] },
+  gold_star:   { name:'레인보우 스타 블록', color:'#eab308', rarity:'epic', desc:'화려하고 희귀한 황금 별 블록', cells:[[1,0],[0,1],[1,1],[2,1],[1,2]] },
+  cosmic:      { name:'코스믹 빅 블록', color:'#e879f9', rarity:'legend', desc:'별빛 우주에서만 나오는 전설의 9칸 블록', cells:[[0,0],[1,0],[2,0],[0,1],[1,1],[2,1],[0,2],[1,2],[2,2]] }
+};
+const RARITY = { normal:'일반', rare:'레어', epic:'에픽', legend:'전설' };
+const SHOP = {
+  orange_dot:{price:40,max:6}, pink_corner:{price:90,max:5}, red_square:{price:100,max:5}, yellow_bar:{price:110,max:4},
+  green_t:{price:180,max:4}, blue_l:{price:200,max:3}, gold_star:{price:500,max:1}
+};
+const KEY_PRICE = 1500;
+const ZONES = {
+  forest:{ name:'숲의 초원', icon:'🌲', seed:11, sky:['#3fa9f5','#d3f3ff'], fog:'#c9efff', fogFar:120, ground:['#2f9e5b','#39b46b'], wall:['#2b7a4b','#3c8f5c'],
+    hemi:['#ffffff','#4f8f5a',.7], sun:.5, portal:'#3ddc97', map:'#2f9e5b',
+    spawn:{red_square:4,orange_dot:3,pink_corner:3,yellow_bar:3,green_t:2,blue_l:1.5,gold_star:.4},
+    portals:[{to:'desert',x:18,z:-38}] },
+  desert:{ name:'뜨거운 사막', icon:'🏜️', seed:22, sky:['#ff8a3d','#ffe6ad'], fog:'#ffe0a8', fogFar:115, ground:['#dfa74c','#ebba66'], wall:['#c2843a','#d19647'],
+    hemi:['#fff1d6','#c98a3a',.72], sun:.55, portal:'#ffb347', map:'#dfa74c',
+    spawn:{purple_z:4,yellow_bar:3,red_square:2,orange_dot:2,pink_corner:2,blue_l:2,green_t:1,gold_star:.6},
+    portals:[{to:'ice',x:-36,z:-30}] },
+  ice:{ name:'얼음 왕국', icon:'❄️', seed:33, sky:['#1c2f7a','#a5dcff'], fog:'#b5ddff', fogFar:100, ground:['#cdeaff','#e8f7ff'], wall:['#8fc3ec','#b9defa'],
+    hemi:['#e2f1ff','#7fa6d9',.74], sun:.4, portal:'#67e8f9', map:'#9fd2f5', stars:.5,
+    spawn:{ice_long:4,blue_l:3,green_t:2,red_square:2,orange_dot:2,pink_corner:2,gold_star:.8},
+    portals:[{to:'forest',x:30,z:32},{to:'space',x:-34,z:-28,key:true}] },
+  space:{ name:'별빛 우주', icon:'🚀', seed:44, sky:['#05021a','#4a1f8a'], fog:'#1d0c44', fogFar:130, ground:['#3a1f7a','#4b2c96'], wall:['#2a1466','#5b2fa8'],
+    hemi:['#c9b3ff','#2a1466',.7], sun:.35, portal:'#e879f9', map:'#3a1f7a', stars:1, gravity:.3,
+    spawn:{cosmic:2,gold_star:3,purple_z:2,ice_long:2,blue_l:2,green_t:2,red_square:1},
+    portals:[{to:'forest',x:0,z:-40}] }
+};
+const ZONE_ORDER = ['forest','desert','ice','space'];
+
+function cellsOf(id, rot = 0) {
+  let c = CATALOG[id].cells.map(p => [p[0], p[1]]);
+  for (let i = 0; i < rot; i++) c = c.map(([x, y]) => [-y, x]);
+  const mx = Math.min(...c.map(p => p[0])), my = Math.min(...c.map(p => p[1]));
+  return c.map(([x, y]) => [x - mx, y - my]);
+}
+const sizeOf = cells => [Math.max(...cells.map(p => p[0])) + 1, Math.max(...cells.map(p => p[1])) + 1];
+function shapeHTML(id, rot = 0, px = 12, unknown = false) {
+  const cells = cellsOf(id, rot), [w, h] = sizeOf(cells);
+  let s = `<span class="shape${unknown ? ' unknown' : ''}" style="--px:${px}px;--w:${w};--h:${h};--c:${CATALOG[id].color}">`;
+  for (const [x, y] of cells) s += `<i style="grid-column:${x + 1};grid-row:${y + 1}"></i>`;
+  return s + '</span>';
+}
+
+/* ================= save ================= */
+const SAVE_KEY = 'BLOCK_EXPLORER_3D_V1';
+const freshState = () => ({
+  coins:500, score:0, zone:'forest', inv:{ red_square:3, blue_l:2 },
+  stock:Object.fromEntries(Object.entries(SHOP).map(([k, v]) => [k, v.max])),
+  grid:Array.from({ length:8 }, () => Array(8).fill(null)), pScore:0,
+  found:{ red_square:1, blue_l:1 }, hasKey:false, mission:null, done:0, muted:false, bookDone:false
+});
+let state = freshState(), hadSave = false;
+function load() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (!s || typeof s !== 'object') return;
+    const f = freshState();
+    state = Object.assign(f, s);
+    if (!ZONES[state.zone] || (state.zone === 'space' && !state.hasKey)) state.zone = 'forest';
+    for (const k in state.inv) if (!CATALOG[k] || !(state.inv[k] > 0)) delete state.inv[k];
+    if (!Array.isArray(state.grid) || state.grid.length !== 8) state.grid = freshState().grid;
+    state.grid = state.grid.map(r => Array.from({ length:8 }, (_, i) => (r && CATALOG[r[i]]) ? r[i] : null));
+    for (const k in SHOP) if (typeof state.stock[k] !== 'number') state.stock[k] = SHOP[k].max;
+    hadSave = true;
+  } catch (e) { state = freshState(); }
+}
+function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch (e) {} }
+
+/* ================= sound ================= */
+let actx = null;
+function audio() {
+  if (state.muted) return null;
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
+  if (actx.state === 'suspended') actx.resume().catch(() => {});
+  return actx;
+}
+function tone(f, d = .12, type = 'sine', vol = .1, when = 0, slide = 0) {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime + when, o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + d);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + .012); g.gain.exponentialRampToValueAtTime(.0001, t + d);
+  o.connect(g); g.connect(a.destination); o.start(t); o.stop(t + d + .03);
+}
+const sfx = {
+  coin()   { tone(988, .08, 'square', .05); tone(1319, .2, 'square', .05, .07); },
+  block()  { [523, 659, 784, 1047].forEach((f, i) => tone(f, .13, 'triangle', .12, i * .06)); },
+  jump()   { tone(300, .18, 'sine', .09, 0, 640); },
+  portal() { tone(200, .6, 'sawtooth', .05, 0, 1200); tone(400, .6, 'sine', .08, .1, 1600); },
+  place()  { tone(240, .09, 'triangle', .14); },
+  clear(n) { [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f * (1 + (n - 1) * .12), .22, 'triangle', .12, i * .07)); },
+  buy()    { tone(660, .08, 'square', .05); tone(880, .08, 'square', .05, .08); tone(1320, .16, 'square', .05, .16); },
+  no()     { tone(180, .18, 'sawtooth', .06, 0, 120); },
+  slime()  { [784, 988, 1175, 1568, 1976].forEach((f, i) => tone(f, .14, 'square', .05, i * .05)); },
+  boom()   { tone(120, .4, 'sawtooth', .1, 0, 40); [1047, 1319, 1568].forEach((f, i) => tone(f, .25, 'triangle', .08, .1 + i * .08)); },
+  mission(){ [659, 784, 1047, 1319].forEach((f, i) => tone(f, .18, 'triangle', .12, i * .09)); }
+};
+
+/* ================= 3D world ================= */
+let renderer, scene, camera, hemi, sun, skyDome, skyMat, stars, starMat, weather, cloudGroup;
+const zones = {};
+let cur = null;
+const player = { x:0, y:0, z:6, vy:0, yaw:0, pitch:0, ground:true, bob:0 };
+let started = false, portalLock = 0, hintLock = 0;
+
+const mats = {};
+function M(color, extra) {
+  const k = color + (extra ? JSON.stringify(extra) : '');
+  return mats[k] || (mats[k] = new THREE.MeshPhongMaterial(Object.assign({ color, flatShading:true, shininess:0 }, extra)));
+}
+let G;
+function put(parent, geo, color, x, y, z, sx = 1, sy = sx, sz = sx, extra) {
+  const m = new THREE.Mesh(geo, M(color, extra));
+  m.position.set(x, y, z); m.scale.set(sx, sy, sz); parent.add(m); return m;
+}
+function rng(seed) {
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+function canvasTex(w, h, draw) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+  return new THREE.CanvasTexture(c);
+}
+function groundTex(a, b, R) {
+  const t = canvasTex(128, 128, x => {
+    x.fillStyle = a; x.fillRect(0, 0, 128, 128); x.fillStyle = b; x.fillRect(0, 0, 64, 64); x.fillRect(64, 64, 64, 64);
+    for (let i = 0; i < 70; i++) { x.fillStyle = i % 2 ? 'rgba(255,255,255,.09)' : 'rgba(0,0,0,.07)'; x.fillRect(R() * 122, R() * 122, 5, 5); }
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(22, 22); t.anisotropy = 4; return t;
+}
+function skyTex(top, low) {
+  return canvasTex(4, 256, (x, w, h) => { const g = x.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, top); g.addColorStop(.5, low); g.addColorStop(1, low); x.fillStyle = g; x.fillRect(0, 0, w, h); });
+}
+const FONT = '"Jua","Apple SD Gothic Neo","Malgun Gothic",sans-serif';
+function drawLabel(tex, text, color) {
+  const c = tex.image, x = c.getContext('2d'); x.clearRect(0, 0, c.width, c.height);
+  x.fillStyle = 'rgba(16,20,43,.86)'; x.strokeStyle = color; x.lineWidth = 8;
+  const r = 40; x.beginPath(); x.moveTo(r + 6, 6); x.arcTo(c.width - 6, 6, c.width - 6, c.height - 6, r); x.arcTo(c.width - 6, c.height - 6, 6, c.height - 6, r);
+  x.arcTo(6, c.height - 6, 6, 6, r); x.arcTo(6, 6, c.width - 6, 6, r); x.closePath(); x.fill(); x.stroke();
+  x.fillStyle = '#fff8e7'; x.font = '50px ' + FONT; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(text, c.width / 2, c.height / 2 + 4, c.width - 50); tex.needsUpdate = true;
+}
+function makeLabel(text, color) {
+  const tex = canvasTex(640, 128, () => {}); drawLabel(tex, text, color);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true, depthWrite:false, fog:false }));
+  sp.scale.set(9, 1.8, 1); sp.userData.tex = tex; return sp;
+}
+function beam(color, h = 16, r = 1) {
+  const m = new THREE.Mesh(G.beam, new THREE.MeshBasicMaterial({ color, transparent:true, opacity:.26, blending:THREE.AdditiveBlending,
+    depthWrite:false, side:THREE.DoubleSide, fog:false }));
+  m.scale.set(r, h, r); m.position.y = h / 2; return m;
+}
+
+/* ---- decor pieces: each returns its collision radius ---- */
+const D = {
+  pine(g, x, z, s) { put(g, G.cyl, '#7a4a21', x, s, z, .3 * s, 2 * s, .3 * s); put(g, G.cone, '#1f8a4c', x, 3.1 * s, z, 1.7 * s, 2.8 * s, 1.7 * s);
+    put(g, G.cone, '#2aa35c', x, 4.6 * s, z, 1.2 * s, 2.2 * s, 1.2 * s); return .6 * s; },
+  round(g, x, z, s) { put(g, G.cyl, '#7a4a21', x, 1.1 * s, z, .32 * s, 2.2 * s, .32 * s); put(g, G.sph, '#46c26d', x, 3.4 * s, z, 1.7 * s, 1.5 * s, 1.7 * s);
+    put(g, G.sph, '#5fd684', x + .8 * s, 4.1 * s, z + .3 * s, .9 * s); return .6 * s; },
+  shroom(g, x, z, s, R) { put(g, G.cyl, '#fff3d6', x, .45 * s, z, .22 * s, .9 * s, .22 * s);
+    put(g, G.sph, R() < .5 ? '#ef4444' : '#f472b6', x, 1.0 * s, z, .8 * s, .45 * s, .8 * s); return .45 * s; },
+  flower(g, x, z, s, R) { put(g, G.cyl, '#2aa35c', x, .3, z, .04, .6, .04);
+    put(g, G.sph, ['#f472b6', '#facc15', '#fff8e7', '#a855f7'][R() * 4 | 0], x, .68, z, .18); return 0; },
+  cactus(g, x, z, s) { const c = '#2f9e5b'; put(g, G.cyl, c, x, 1.6 * s, z, .42 * s, 3.2 * s, .42 * s);
+    put(g, G.box, c, x + .7 * s, 1.6 * s, z, .9 * s, .34 * s, .34 * s); put(g, G.box, c, x + 1.0 * s, 2.2 * s, z, .34 * s, 1.5 * s, .34 * s);
+    put(g, G.box, c, x - .7 * s, 2.1 * s, z, .9 * s, .34 * s, .34 * s); put(g, G.box, c, x - 1.0 * s, 2.6 * s, z, .34 * s, 1.2 * s, .34 * s);
+    put(g, G.sph, '#f472b6', x, 3.3 * s, z, .2 * s); return .9 * s; },
+  rock(g, x, z, s, R, col = '#b08a5a') { const m = put(g, G.rock, col, x, .5 * s, z, s, .7 * s, s); m.rotation.y = R() * 6; return .85 * s; },
+  pyramid(g, x, z, s) { const m = put(g, G.cone4, '#d19647', x, 3.5 * s, z, 5 * s, 7 * s, 5 * s); m.rotation.y = Math.PI / 4; return 3.7 * s; },
+  crystal(g, x, z, s, R, col = '#9be7ff', glow = '#1b6ea8') { const m = put(g, G.oct, col, x, 1.6 * s, z, .7 * s, 2.2 * s, .7 * s, { emissive:glow, transparent:true, opacity:.88 });
+    m.rotation.y = R() * 3; put(g, G.oct, col, x + .7 * s, .8 * s, z + .3 * s, .4 * s, 1.1 * s, .4 * s, { emissive:glow, transparent:true, opacity:.88 }); return .9 * s; },
+  snowman(g, x, z, s) { put(g, G.sph, '#ffffff', x, .8 * s, z, .85 * s); put(g, G.sph, '#ffffff', x, 1.95 * s, z, .6 * s); put(g, G.sph, '#ffffff', x, 2.8 * s, z, .42 * s);
+    const n = put(g, G.cone, '#fb923c', x, 2.8 * s, z + .55 * s, .09 * s, .45 * s, .09 * s); n.rotation.x = Math.PI / 2;
+    put(g, G.sph, '#10142b', x - .16 * s, 2.95 * s, z + .36 * s, .06 * s); put(g, G.sph, '#10142b', x + .16 * s, 2.95 * s, z + .36 * s, .06 * s);
+    put(g, G.cyl, '#ef4444', x, 2.38 * s, z, .5 * s, .16 * s, .5 * s); return .9 * s; },
+  snowpine(g, x, z, s) { put(g, G.cyl, '#6b4423', x, s, z, .3 * s, 2 * s, .3 * s); put(g, G.cone, '#2a7d6b', x, 3.1 * s, z, 1.7 * s, 2.8 * s, 1.7 * s);
+    put(g, G.cone, '#f4fbff', x, 4.7 * s, z, 1.15 * s, 2.1 * s, 1.15 * s); return .6 * s; },
+  glowshroom(g, x, z, s) { put(g, G.cyl, '#d9c8ff', x, .7 * s, z, .2 * s, 1.4 * s, .2 * s);
+    put(g, G.sph, '#5ef2e0', x, 1.5 * s, z, .9 * s, .5 * s, .9 * s, { emissive:'#1fa89a' }); return .45 * s; },
+  crater(g, x, z, s) { put(g, G.cyl, '#2a1466', x, .03, z, 2.2 * s, .06, 2.2 * s); put(g, G.cyl, '#22104f', x, .05, z, 1.5 * s, .06, 1.5 * s); return 0; }
+};
+
+function buildZone(id) {
+  const Z = ZONES[id], R = rng(Z.seed), g = new THREE.Group(), obs = [];
+  const zone = { id, g, obs, items:[], portals:[], slime:null };
+  // ground
+  const gm = new THREE.Mesh(new THREE.PlaneGeometry(176, 176), new THREE.MeshLambertMaterial({ map:groundTex(Z.ground[0], Z.ground[1], R) }));
+  gm.rotation.x = -Math.PI / 2; g.add(gm);
+  // ring of hills around the play area
+  for (let i = 0; i < 38; i++) {
+    const a = i / 38 * Math.PI * 2 + R() * .1, rad = 66 + R() * 8, h = 12 + R() * 14, w = 8 + R() * 5;
+    put(g, id === 'desert' ? G.cone4 : G.cone, Z.wall[i % 2], Math.cos(a) * rad, h / 2 - .5, Math.sin(a) * rad, w, h, w).rotation.y = R() * 3;
+    if (id === 'ice') put(g, G.cone, '#ffffff', Math.cos(a) * rad, h * .78 - .5, Math.sin(a) * rad, w * .46, h * .46, w * .46);
+  }
+  const blocked = (x, z, r) => {
+    if (Math.hypot(x, z - 3) < 7 + r) return true;
+    for (const p of Z.portals) if (Math.hypot(x - p.x, z - p.z) < 6 + r) return true;
+    for (const o of obs) if (Math.hypot(x - o.x, z - o.z) < o.r + r + 1.6) return true;
+    return false;
+  };
+  const scatter = (n, fn, smin = .8, smax = 1.3, pad = 1, ...extra) => {
+    for (let i = 0, tries = 0; i < n && tries < n * 12; tries++) {
+      const x = (R() * 2 - 1) * 50, z = (R() * 2 - 1) * 50, s = smin + R() * (smax - smin);
+      if (blocked(x, z, pad * s)) continue;
+      const r = fn(g, x, z, s, R, ...extra); if (r > 0) obs.push({ x, z, r }); i++;
+    }
+  };
+  if (id === 'forest') { scatter(26, D.pine, .9, 1.5); scatter(16, D.round, .9, 1.4); scatter(14, D.shroom, .7, 1.4); scatter(8, D.rock, .6, 1.2, 1, '#8d939c'); scatter(50, D.flower, 1, 1, .2); }
+  if (id === 'desert') { scatter(3, D.pyramid, .9, 1.3, 4); scatter(26, D.cactus, .8, 1.4); scatter(22, D.rock, .6, 1.6); }
+  if (id === 'ice')    { scatter(22, D.crystal, .8, 1.8); scatter(20, D.snowpine, .9, 1.4); scatter(7, D.snowman, .9, 1.2); scatter(8, D.rock, .6, 1.3, 1, '#dff2ff'); }
+  if (id === 'space')  { scatter(14, D.crater, .8, 1.6, 2); scatter(20, D.crystal, .9, 2, 1, '#e879f9', '#7a1fa8'); scatter(16, D.glowshroom, .9, 1.8); scatter(10, D.rock, .7, 1.5, 1, '#6d4bc4');
+    for (let i = 0; i < 14; i++) { const m = put(g, G.rock, '#7a5bd6', (R() * 2 - 1) * 60, 8 + R() * 16, (R() * 2 - 1) * 60, .8 + R() * 1.6); m.rotation.set(R() * 3, R() * 3, 0); }
+    const planet = put(g, G.sph, '#ff9d4d', 90, 70, -150, 22, 22, 22, { fog:false, emissive:'#7a3410' });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(34, 2.2, 6, 40), M('#ffd23f', { fog:false, emissive:'#7a5a10' }));
+    ring.position.copy(planet.position); ring.rotation.set(1.25, .3, 0); g.add(ring);
+    put(g, G.sph, '#9be7ff', -120, 50, -90, 9, 9, 9, { fog:false, emissive:'#1b4e78' }); }
+  // portals
+  for (const p of Z.portals) zone.portals.push(makePortal(g, p));
+  // collectibles
+  for (let i = 0; i < 15; i++) zone.items.push(makeItem(zone, 'block'));
+  for (let i = 0; i < 14; i++) zone.items.push(makeItem(zone, 'coin'));
+  zone.slime = makeSlime(zone);
+  g.visible = false; scene.add(g); return zone;
+}
+
+function freeSpot(zone) {
+  const Z = ZONES[zone.id];
+  for (let t = 0; t < 40; t++) {
+    const x = (Math.random() * 2 - 1) * 48, z = (Math.random() * 2 - 1) * 48;
+    if (Math.hypot(x - player.x, z - player.z) < 6) continue;
+    if (Z.portals.some(p => Math.hypot(x - p.x, z - p.z) < 5)) continue;
+    if (zone.obs.some(o => Math.hypot(x - o.x, z - o.z) < o.r + 1.3)) continue;
+    return [x, z];
+  }
+  return [(Math.random() * 2 - 1) * 20, (Math.random() * 2 - 1) * 20];
+}
+function pickBlock(zoneId) {
+  const tbl = ZONES[zoneId].spawn; let sum = 0; for (const k in tbl) sum += tbl[k];
+  let r = Math.random() * sum; for (const k in tbl) { r -= tbl[k]; if (r <= 0) return k; } return 'red_square';
+}
+const blockMats = {};
+function blockMesh(id) {
+  const c = CATALOG[id], [w, h] = sizeOf(c.cells), grp = new THREE.Group();
+  const m = blockMats[id] || (blockMats[id] = new THREE.MeshPhongMaterial({ color:c.color, emissive:c.color, emissiveIntensity:.4, flatShading:true, shininess:40 }));
+  for (const [x, y] of c.cells) { const b = new THREE.Mesh(G.box, m); b.scale.setScalar(.46); b.position.set((x - (w - 1) / 2) * .5, ((h - 1) / 2 - y) * .5, 0); grp.add(b); }
+  return grp;
+}
+function makeItem(zone, type) {
+  const it = { type, obj:new THREE.Group(), alive:true, respawnAt:0, phase:Math.random() * 6, x:0, z:0, id:null, value:0, spin:null, beam:null };
+  if (type === 'coin') {
+    it.spin = new THREE.Mesh(G.coin, M('#ffd23f', { emissive:'#a8760a', shininess:90 })); it.spin.rotation.x = Math.PI / 2;
+    const holder = new THREE.Group(); holder.add(it.spin); it.spin = holder; it.obj.add(holder);
+  } else { it.beam = beam('#ffffff'); it.obj.add(it.beam); }
+  zone.g.add(it.obj); placeItem(zone, it); return it;
+}
+function placeItem(zone, it) {
+  [it.x, it.z] = freeSpot(zone); it.obj.position.set(it.x, 0, it.z); it.alive = true; it.obj.visible = true;
+  if (it.type === 'coin') { it.value = 10 + (Math.random() * 30 | 0); return; }
+  it.id = pickBlock(zone.id);
+  if (it.spin) it.obj.remove(it.spin);
+  it.spin = blockMesh(it.id); it.obj.add(it.spin);
+  const rare = CATALOG[it.id].rarity; it.beam.material.color.set(CATALOG[it.id].color);
+  const big = rare === 'legend' ? 2.2 : rare === 'epic' ? 1.6 : 1; it.beam.scale.set(big, 14 * big, big); it.beam.position.y = 7 * big;
+}
+function makePortal(g, p) {
+  const grp = new THREE.Group(); grp.position.set(p.x, 0, p.z);
+  const col = ZONES[p.to].portal;
+  put(grp, G.cyl, '#6b7280', 0, .2, 0, 3, .4, 3);
+  const ringMat = new THREE.MeshPhongMaterial({ color:col, emissive:col, emissiveIntensity:.6, flatShading:true });
+  const ring = new THREE.Mesh(G.torus, ringMat); ring.position.y = 3; grp.add(ring);
+  const discMat = new THREE.MeshBasicMaterial({ map:swirl, color:col, transparent:true, opacity:.8, side:THREE.DoubleSide, depthWrite:false });
+  const disc = new THREE.Mesh(G.disc, discMat); disc.position.y = 3; grp.add(disc);
+  const bm = beam(col, 30, 2.4); grp.add(bm);
+  const label = makeLabel('', col); label.position.y = 6.6; grp.add(label);
+  grp.lookAt(0, 0, 0); g.add(grp);
+  const P = { def:p, grp, ringMat, discMat, disc, bm, label, col };
+  refreshPortal(P); return P;
+}
+function refreshPortal(P) {
+  const locked = P.def.key && !state.hasKey, col = locked ? '#8a8fa8' : P.col, Z = ZONES[P.def.to];
+  P.ringMat.color.set(col); P.ringMat.emissive.set(col); P.discMat.color.set(col); P.discMat.opacity = locked ? .2 : .8;
+  P.bm.material.color.set(col); P.bm.visible = !locked;
+  drawLabel(P.label.userData.tex, locked ? '🔒 우주 열쇠가 필요해요' : `🌀 ${Z.icon} ${Z.name} 가는 문`, col);
+}
+function makeSlime(zone) {
+  const grp = new THREE.Group(), body = new THREE.Group(); grp.add(body);
+  put(body, G.sph, '#ffd23f', 0, .65, 0, .95, .7, .95, { emissive:'#a8760a', shininess:90 });
+  put(body, G.sph, '#10142b', -.3, .85, .78, .12); put(body, G.sph, '#10142b', .3, .85, .78, .12);
+  put(body, G.cone, '#ff5fa2', 0, 1.5, 0, .3, .5, .3, { emissive:'#7a1f4a' });
+  grp.add(beam('#ffd23f', 10, .7));
+  zone.g.add(grp);
+  const s = { grp, body, x:0, z:0, alive:true, respawnAt:0, dir:Math.random() * 6, turnAt:0 };
+  [s.x, s.z] = [(Math.random() * 2 - 1) * 35, -20 - Math.random() * 20]; return s;
+}
+
+/* ---- particles ---- */
+const P = { n:600, i:0 };
+let swirl;
+function initParticles() {
+  P.pos = new Float32Array(P.n * 3).fill(-999); P.col = new Float32Array(P.n * 3); P.vel = new Float32Array(P.n * 3); P.life = new Float32Array(P.n);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(P.pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(P.col, 3));
+  P.pts = new THREE.Points(geo, new THREE.PointsMaterial({ size:.42, vertexColors:true, transparent:true, depthWrite:false, fog:false }));
+  P.pts.frustumCulled = false; scene.add(P.pts);
+}
+const tmpC = new THREE.Color();
+function burst(x, y, z, color, count = 26, speed = 6) {
+  tmpC.set(color);
+  for (let k = 0; k < count; k++) {
+    const i = P.i = (P.i + 1) % P.n, a = Math.random() * 6.283, u = Math.random() * 2 - 1, s = Math.sqrt(1 - u * u), v = speed * (.4 + Math.random() * .6);
+    P.pos[i * 3] = x; P.pos[i * 3 + 1] = y; P.pos[i * 3 + 2] = z;
+    P.vel[i * 3] = Math.cos(a) * s * v; P.vel[i * 3 + 1] = u * v + 2; P.vel[i * 3 + 2] = Math.sin(a) * s * v;
+    const w = Math.random() * .35; P.col[i * 3] = tmpC.r + (1 - tmpC.r) * w; P.col[i * 3 + 1] = tmpC.g + (1 - tmpC.g) * w; P.col[i * 3 + 2] = tmpC.b + (1 - tmpC.b) * w;
+    P.life[i] = .7 + Math.random() * .7;
+  }
+}
+function fireworks(color, n = 3) {
+  const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw), cols = [color, '#ffd23f', '#ff5fa2', '#5ec8ff', '#3ddc97'];
+  for (let k = 0; k < n; k++) setTimeout(() => {
+    const d = 9 + Math.random() * 6, side = (Math.random() * 2 - 1) * 6;
+    burst(player.x + fx * d - fz * side, 5 + Math.random() * 5, player.z + fz * d + fx * side, cols[k % cols.length], 70, 9);
+  }, k * 180);
+}
+function updateParticles(dt) {
+  for (let i = 0; i < P.n; i++) {
+    if (P.life[i] <= 0) continue;
+    P.life[i] -= dt; const j = i * 3;
+    if (P.life[i] <= 0) { P.pos[j + 1] = -999; continue; }
+    P.vel[j + 1] -= 9 * dt; P.pos[j] += P.vel[j] * dt; P.pos[j + 1] += P.vel[j + 1] * dt; P.pos[j + 2] += P.vel[j + 2] * dt;
+  }
+  P.pts.geometry.attributes.position.needsUpdate = true; P.pts.geometry.attributes.color.needsUpdate = true;
+}
+/* ---- weather: pollen, snow, stardust ---- */
+const W = { n:320, cfg:null };
+const WEATHER = { forest:{ color:'#fff7a8', vy:.5, size:.14 }, desert:{ color:'#ffe9bf', vy:.25, size:.1 }, ice:{ color:'#ffffff', vy:-3.2, size:.2 }, space:{ color:'#e9c8ff', vy:.9, size:.18 } };
+function initWeather() {
+  W.pos = new Float32Array(W.n * 3);
+  for (let i = 0; i < W.n; i++) { W.pos[i * 3] = (Math.random() * 2 - 1) * 25; W.pos[i * 3 + 1] = Math.random() * 22; W.pos[i * 3 + 2] = (Math.random() * 2 - 1) * 25; }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(W.pos, 3));
+  weather = new THREE.Points(geo, new THREE.PointsMaterial({ size:.2, color:'#ffffff', transparent:true, opacity:.85, depthWrite:false }));
+  weather.frustumCulled = false; scene.add(weather);
+}
+function updateWeather(dt, t) {
+  const c = W.cfg; if (!c) return;
+  for (let i = 0; i < W.n; i++) {
+    const j = i * 3; W.pos[j + 1] += c.vy * dt; W.pos[j] += Math.sin(t + i) * .3 * dt;
+    if (W.pos[j + 1] < 0) W.pos[j + 1] += 22; else if (W.pos[j + 1] > 22) W.pos[j + 1] -= 22;
+    if (W.pos[j] - player.x > 25) W.pos[j] -= 50; else if (W.pos[j] - player.x < -25) W.pos[j] += 50;
+    if (W.pos[j + 2] - player.z > 25) W.pos[j + 2] -= 50; else if (W.pos[j + 2] - player.z < -25) W.pos[j + 2] += 50;
+  }
+  weather.geometry.attributes.position.needsUpdate = true;
+}
+
+function initWorld() {
+  renderer = new THREE.WebGLRenderer({ canvas:view, antialias:true, powerPreference:'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  scene = new THREE.Scene(); scene.fog = new THREE.Fog('#c9efff', 30, 120);
+  camera = new THREE.PerspectiveCamera(72, 1, .1, 700); camera.rotation.order = 'YXZ';
+  hemi = new THREE.HemisphereLight('#ffffff', '#4f8f5a', .95); scene.add(hemi);
+  sun = new THREE.DirectionalLight('#ffffff', .75); sun.position.set(40, 80, 30); scene.add(sun);
+  G = { box:new THREE.BoxGeometry(1, 1, 1), cone:new THREE.ConeGeometry(1, 1, 7), cone4:new THREE.ConeGeometry(1, 1, 4), cyl:new THREE.CylinderGeometry(1, 1, 1, 8),
+    sph:new THREE.IcosahedronGeometry(1, 1), rock:new THREE.DodecahedronGeometry(1, 0), oct:new THREE.OctahedronGeometry(1, 0),
+    coin:new THREE.CylinderGeometry(.5, .5, .12, 14), beam:new THREE.CylinderGeometry(.3, .3, 1, 8, 1, true),
+    torus:new THREE.TorusGeometry(2.3, .3, 8, 26), disc:new THREE.CircleGeometry(2.1, 26) };
+  swirl = canvasTex(128, 128, x => { x.translate(64, 64); x.strokeStyle = '#fff'; x.lineCap = 'round';
+    for (let arm = 0; arm < 5; arm++) { x.rotate(Math.PI * 2 / 5); x.beginPath(); for (let i = 0; i < 40; i++) { const r = i * 1.5, a = i * .16; x.lineTo(Math.cos(a) * r, Math.sin(a) * r); } x.lineWidth = 6; x.stroke(); }
+    const g = x.createRadialGradient(0, 0, 0, 0, 0, 64); g.addColorStop(0, 'rgba(255,255,255,.9)'); g.addColorStop(1, 'rgba(255,255,255,.15)'); x.fillStyle = g; x.beginPath(); x.arc(0, 0, 64, 0, 7); x.fill(); });
+  // sky
+  skyMat = new THREE.MeshBasicMaterial({ side:THREE.BackSide, fog:false, depthWrite:false });
+  skyDome = new THREE.Mesh(new THREE.SphereGeometry(500, 20, 12), skyMat); scene.add(skyDome);
+  const sp = new Float32Array(600 * 3);
+  for (let i = 0; i < 600; i++) { const a = Math.random() * 6.283, u = Math.random() * .95 + .03, s = Math.sqrt(1 - u * u); sp[i * 3] = Math.cos(a) * s * 420; sp[i * 3 + 1] = u * 420; sp[i * 3 + 2] = Math.sin(a) * s * 420; }
+  const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+  starMat = new THREE.PointsMaterial({ color:'#ffffff', size:2.2, sizeAttenuation:false, fog:false, transparent:true, depthWrite:false });
+  stars = new THREE.Points(sg, starMat); stars.frustumCulled = false; scene.add(stars);
+  cloudGroup = new THREE.Group(); scene.add(cloudGroup);
+  const cm = new THREE.MeshBasicMaterial({ color:'#ffffff', fog:false, transparent:true, opacity:.9 });
+  for (let i = 0; i < 12; i++) { const a = i / 12 * 6.283 + Math.random(), r = 70 + Math.random() * 90, c = new THREE.Group();
+    for (let k = 0; k < 3; k++) { const m = new THREE.Mesh(G.sph, cm); m.scale.set(8 + Math.random() * 6, 3 + Math.random() * 2, 6 + Math.random() * 4); m.position.set(k * 8 - 8, Math.random() * 2, Math.random() * 4); c.add(m); }
+    c.position.set(Math.cos(a) * r, 42 + Math.random() * 22, Math.sin(a) * r); cloudGroup.add(c); }
+  initParticles(); initWeather();
+  for (const id of ZONE_ORDER) { ZONES[id].skyTex = skyTex(ZONES[id].sky[0], ZONES[id].sky[1]); zones[id] = buildZone(id); }
+  resize();
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(app); else window.addEventListener('resize', resize);
+}
+function resize() {
+  const w = app.clientWidth || 1, h = app.clientHeight || 1;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.fov = w < h ? 82 : 70; camera.updateProjectionMatrix();
+}
+
+function enterZone(id, viaPortal) {
+  if (cur) cur.g.visible = false;
+  cur = zones[id]; cur.g.visible = true; state.zone = id;
+  const Z = ZONES[id];
+  scene.fog.color.set(Z.fog); scene.fog.near = 28; scene.fog.far = Z.fogFar;
+  skyMat.map = Z.skyTex; skyMat.needsUpdate = true;
+  hemi.color.set(Z.hemi[0]); hemi.groundColor.set(Z.hemi[1]); hemi.intensity = Z.hemi[2]; sun.intensity = Z.sun;
+  stars.visible = !!Z.stars; starMat.opacity = Z.stars || 0; cloudGroup.visible = id !== 'space';
+  W.cfg = WEATHER[id]; weather.material.color.set(W.cfg.color); weather.material.size = W.cfg.size;
+  player.x = 0; player.z = 6; player.y = 0; player.vy = 0;
+  if (viaPortal) { player.yaw = 0; player.pitch = 0; }
+  portalLock = 1.5;
+  $('zoneName').textContent = `${Z.icon} ${Z.name}`;
+  if (viaPortal) { banner(`${Z.icon} ${Z.name}`); progress('zone', 1, id); save(); }
+}
+
+/* ================= HUD ================= */
+function toast(text, kind = '') {
+  const box = $('toasts'); while (box.children.length > 2) box.firstChild.remove();
+  const el = document.createElement('div'); el.className = 'toast ' + kind; el.textContent = text; box.appendChild(el);
+  setTimeout(() => el.remove(), 2600);
+}
+let bannerT = 0;
+function banner(text) { const b = $('banner'); b.textContent = text; b.classList.add('on'); clearTimeout(bannerT); bannerT = setTimeout(() => b.classList.remove('on'), 1800); }
+function bump(el) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+const shown = { coins:-1, score:-1 };
+function hud() {
+  if (shown.coins !== state.coins) { $('coins').textContent = state.coins; if (shown.coins >= 0) bump($('coins').parentNode); shown.coins = state.coins; }
+  if (shown.score !== state.score) { $('score').textContent = state.score; if (shown.score >= 0) bump($('score').parentNode); shown.score = state.score; }
+  $('pieceCount').textContent = Object.values(state.inv).reduce((a, b) => a + b, 0);
+  $('bSound').textContent = state.muted ? '🔇' : '🔊';
+}
+function grabPaws() { const p = $('paws'); p.classList.add('grab'); setTimeout(() => p.classList.remove('grab'), 260); }
+
+/* ---- missions ---- */
+const MISSION = {
+  block:{ n:[3, 6], text:m => `퍼즐 블록 ${m.n}개 줍기`, reward:n => n * 30 },
+  coin: { n:[4, 8], text:m => `코인 ${m.n}번 줍기`, reward:n => n * 20 },
+  line: { n:[1, 3], text:m => `퍼즐판에서 ${m.n}줄 터뜨리기`, reward:n => n * 120 },
+  slime:{ n:[1, 1], text:() => '도망가는 황금 젤리 잡기', reward:() => 200 },
+  zone: { n:[1, 1], text:m => `${ZONES[m.zone].icon} ${ZONES[m.zone].name}에 가 보기`, reward:() => 120 }
+};
+function newMission() {
+  const prev = state.mission && state.mission.t;
+  let t = state.done === 0 ? 'block' : state.done === 1 ? 'line' : null;
+  while (!t || (t === prev && state.done > 1)) t = Object.keys(MISSION)[Math.random() * 5 | 0];
+  const def = MISSION[t], n = def.n[0] + (Math.random() * (def.n[1] - def.n[0] + 1) | 0), m = { t, n, p:0, reward:def.reward(n) };
+  if (t === 'zone') { const opts = ZONE_ORDER.filter(z => z !== state.zone && (z !== 'space' || state.hasKey)); m.zone = opts[Math.random() * opts.length | 0]; }
+  state.mission = m;
+}
+function renderMission() {
+  const m = state.mission; if (!m || !MISSION[m.t] || (m.t === 'zone' && !ZONES[m.zone])) { newMission(); return renderMission(); }
+  $('mission').innerHTML = `<span>🎯</span><div class="mtext"><div>${MISSION[m.t].text(m)} <span class="rew">🪙${m.reward}</span></div>
+    <div class="bar"><i style="width:${Math.round(m.p / m.n * 100)}%"></i></div></div><span>${m.p}/${m.n}</span>`;
+}
+function progress(type, n = 1, arg) {
+  const m = state.mission; if (!m || m.t !== type) return; if (type === 'zone' && m.zone !== arg) return;
+  m.p = Math.min(m.n, m.p + n);
+  if (m.p >= m.n) { state.coins += m.reward; state.done++; toast(`🎯 미션 성공! 코인 +${m.reward}`, 'gold'); sfx.mission(); newMission(); }
+  renderMission(); hud();
+}
+function addBlock(id, n = 1) {
+  state.inv[id] = (state.inv[id] || 0) + n;
+  if (!state.found[id]) {
+    state.found[id] = 1;
+    const total = Object.keys(CATALOG).length, got = Object.keys(state.found).length;
+    toast(`📖 도감에 새 블록 등록! (${got}/${total})`, 'good');
+    if (got >= total && !state.bookDone) { state.bookDone = true; state.coins += 1000; toast('🏆 도감 완성! 보너스 코인 +1000', 'gold'); fireworks('#ffd23f', 5); }
+  }
+}
+
+/* ---- minimap ---- */
+const mm = $('minimap').getContext('2d');
+function drawMap() {
+  const S = 208, k = S / 2 / 56, cx = S / 2; mm.clearRect(0, 0, S, S); mm.save(); mm.beginPath(); mm.arc(cx, cx, cx, 0, 7); mm.clip();
+  mm.globalAlpha = .82; mm.fillStyle = ZONES[cur.id].map; mm.fillRect(0, 0, S, S); mm.globalAlpha = 1;
+  const X = x => cx + x * k, Y = z => cx + z * k;
+  for (const p of cur.portals) { const locked = p.def.key && !state.hasKey; mm.strokeStyle = locked ? '#8a8fa8' : '#fff8e7'; mm.lineWidth = 5; mm.fillStyle = locked ? '#555' : p.col;
+    mm.beginPath(); mm.arc(X(p.def.x), Y(p.def.z), 11, 0, 7); mm.fill(); mm.stroke(); }
+  for (const it of cur.items) { if (!it.alive) continue;
+    if (it.type === 'coin') { mm.fillStyle = '#ffd23f'; mm.beginPath(); mm.arc(X(it.x), Y(it.z), 4, 0, 7); mm.fill(); }
+    else { mm.fillStyle = CATALOG[it.id].color; mm.strokeStyle = '#10142b'; mm.lineWidth = 2; mm.fillRect(X(it.x) - 6, Y(it.z) - 6, 12, 12); mm.strokeRect(X(it.x) - 6, Y(it.z) - 6, 12, 12); } }
+  const s = cur.slime; if (s.alive) { mm.fillStyle = '#ffd23f'; mm.strokeStyle = '#ff5fa2'; mm.lineWidth = 4; mm.beginPath(); mm.arc(X(s.x), Y(s.z), 8, 0, 7); mm.fill(); mm.stroke(); }
+  mm.translate(X(player.x), Y(player.z)); mm.rotate(-player.yaw); mm.fillStyle = '#ff5fa2'; mm.strokeStyle = '#fff8e7'; mm.lineWidth = 4;
+  mm.beginPath(); mm.moveTo(0, -15); mm.lineTo(11, 11); mm.lineTo(0, 5); mm.lineTo(-11, 11); mm.closePath(); mm.fill(); mm.stroke(); mm.restore();
+}
+
+/* ================= input ================= */
+const keys = {}; const ptr = { stickId:null, sx:0, sy:0, mx:0, my:0, lookId:null, lx:0, ly:0, mouse:false };
+let locked = false, openModalId = 'start';
+const paused = () => openModalId !== null;
+function jump() { if (paused() || !player.ground) return; player.vy = 8.2; player.ground = false; sfx.jump(); }
+window.addEventListener('keydown', e => {
+  if (e.code === 'Escape' && openModalId && openModalId !== 'start') { closeModal(); return; }
+  if (paused()) return;
+  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+  keys[e.code] = true;
+  if (e.code === 'Space') jump();
+  if (e.code === 'Digit1') openModal('mShop'); if (e.code === 'Digit2') openModal('mBag'); if (e.code === 'Digit3') openModal('mPuzzle');
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === view; });
+function tryLock() { try { const r = view.requestPointerLock && view.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) {} }
+function unlock() { try { if (document.pointerLockElement) document.exitPointerLock(); } catch (e) {} }
+function look(dx, dy, k) { player.yaw -= dx * k; player.pitch = clamp(player.pitch - dy * k, -1.2, 1.2); }
+view.addEventListener('pointerdown', e => {
+  if (paused()) return; audio();
+  if (e.pointerType === 'mouse') { ptr.mouse = true; if (!locked) tryLock(); return; }
+  app.classList.add('touch');
+  const r = app.getBoundingClientRect();
+  if (e.clientX - r.left < r.width * .45 && ptr.stickId === null) {
+    ptr.stickId = e.pointerId; ptr.sx = e.clientX; ptr.sy = e.clientY; ptr.mx = ptr.my = 0;
+    const st = $('stick'); st.hidden = false; st.style.left = (e.clientX - r.left) + 'px'; st.style.top = (e.clientY - r.top) + 'px'; $('knob').style.transform = '';
+  } else if (ptr.lookId === null) { ptr.lookId = e.pointerId; ptr.lx = e.clientX; ptr.ly = e.clientY; }
+  try { view.setPointerCapture(e.pointerId); } catch (err) {}
+});
+view.addEventListener('pointermove', e => {
+  if (e.pointerType === 'mouse') { if ((locked || ptr.mouse) && !paused()) look(e.movementX || 0, e.movementY || 0, .0026); return; }
+  if (e.pointerId === ptr.stickId) {
+    let dx = e.clientX - ptr.sx, dy = e.clientY - ptr.sy; const d = Math.hypot(dx, dy), max = 46;
+    if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+    $('knob').style.transform = `translate(${dx}px,${dy}px)`; ptr.mx = dx / max; ptr.my = dy / max;
+  } else if (e.pointerId === ptr.lookId) { look(e.clientX - ptr.lx, e.clientY - ptr.ly, .0062); ptr.lx = e.clientX; ptr.ly = e.clientY; }
+});
+function pointerEnd(e) {
+  if (e.pointerType === 'mouse') { ptr.mouse = false; return; }
+  if (e.pointerId === ptr.stickId) { ptr.stickId = null; ptr.mx = ptr.my = 0; $('stick').hidden = true; }
+  if (e.pointerId === ptr.lookId) ptr.lookId = null;
+}
+view.addEventListener('pointerup', pointerEnd); view.addEventListener('pointercancel', pointerEnd);
+window.addEventListener('mouseup', () => { ptr.mouse = false; });
+$('jump').addEventListener('pointerdown', e => { e.preventDefault(); audio(); jump(); });
+view.addEventListener('contextmenu', e => e.preventDefault());
+function releaseInput() { ptr.stickId = ptr.lookId = null; ptr.mx = ptr.my = 0; ptr.mouse = false; $('stick').hidden = true; for (const k in keys) keys[k] = false; }
+
+/* ================= game loop ================= */
+let last = 0, frame = 0;
+function tick(ms) {
+  requestAnimationFrame(tick);
+  const t = ms / 1000, dt = Math.min(.05, t - last || .016); last = t; frame++;
+  update(dt, t); renderer.render(scene, camera);
+  if (frame % 4 === 0) drawMap();
+}
+function update(dt, t) {
+  const Z = ZONES[cur.id];
+  let mx = 0, my = 0, moving = false;
+  if (!paused()) {
+    if (keys.KeyW || keys.ArrowUp) my += 1; if (keys.KeyS || keys.ArrowDown) my -= 1;
+    if (keys.KeyD) mx += 1; if (keys.KeyA) mx -= 1;
+    if (keys.ArrowLeft) player.yaw += 2.2 * dt; if (keys.ArrowRight) player.yaw -= 2.2 * dt;
+    if (ptr.stickId !== null) { mx = ptr.mx; my = -ptr.my; }
+    const len = Math.hypot(mx, my);
+    if (len > .08) {
+      if (len > 1) { mx /= len; my /= len; }
+      const sp = 9 * dt, fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
+      player.x += (fx * my + -fz * mx) * sp; player.z += (fz * my + fx * mx) * sp; moving = true;
+    }
+    // jump + gravity
+    if (!player.ground) { player.vy -= 22 * (Z.gravity || 1) * dt; player.y += player.vy * dt; if (player.y <= 0) { player.y = 0; player.vy = 0; player.ground = true; } }
+    // collisions
+    for (const o of cur.obs) { const dx = player.x - o.x, dz = player.z - o.z, d = Math.hypot(dx, dz), min = o.r + .55;
+      if (d < min && d > .0001) { player.x = o.x + dx / d * min; player.z = o.z + dz / d * min; } }
+    player.x = clamp(player.x, -53, 53); player.z = clamp(player.z, -53, 53);
+    if (moving && player.ground) player.bob += dt * 11;
+  } else if (openModalId === 'start') player.yaw += dt * .12;
+
+  // items
+  const now = Date.now();
+  for (const it of cur.items) {
+    if (!it.alive) { if (now > it.respawnAt) placeItem(cur, it); continue; }
+    it.spin.rotation.y = t * 1.6 + it.phase; it.spin.position.y = 1.25 + Math.sin(t * 2.4 + it.phase) * .22;
+    if (!paused() && Math.hypot(it.x - player.x, it.z - player.z) < 1.7 && player.y < 3.2) collect(it, now);
+  }
+  // portals
+  if (portalLock > 0) portalLock -= dt; if (hintLock > 0) hintLock -= dt;
+  for (const p of cur.portals) {
+    p.disc.rotation.z -= dt * 1.4;
+    if (paused() || portalLock > 0) continue;
+    if (Math.hypot(p.def.x - player.x, p.def.z - player.z) < 2.3) {
+      if (p.def.key && !state.hasKey) { if (hintLock <= 0) { toast(`🔒 상점에서 우주 열쇠(🪙${KEY_PRICE})를 사면 열려요`, 'bad'); sfx.no(); hintLock = 3; } continue; }
+      travel(p.def.to); break;
+    }
+  }
+  updateSlime(cur.slime, dt, t, now);
+  updateParticles(dt); updateWeather(dt, t);
+  cloudGroup.rotation.y += dt * .008;
+
+  // camera
+  const bob = Math.sin(player.bob) * .07;
+  camera.position.set(player.x, player.y + 1.7 + (player.ground ? bob : 0), player.z);
+  camera.rotation.set(player.pitch, player.yaw, 0);
+  skyDome.position.copy(camera.position); stars.position.copy(camera.position);
+  $('paws').style.setProperty('--bob', (Math.abs(Math.sin(player.bob)) * 12 + (player.ground ? 0 : 26) + clamp(player.pitch, -1, 0) * -30) + 'px');
+}
+function collect(it, now) {
+  it.alive = false; it.obj.visible = false; it.respawnAt = now + 18000 + Math.random() * 14000; grabPaws();
+  if (it.type === 'coin') { state.coins += it.value; state.score += 10; burst(it.x, 1.3, it.z, '#ffd23f', 16, 5); sfx.coin(); toast(`🪙 코인 +${it.value}`, 'gold'); progress('coin'); }
+  else { const c = CATALOG[it.id]; burst(it.x, 1.4, it.z, c.color, 34, 7); sfx.block(); state.score += 50;
+    toast(`✨ ${c.name} 획득!`, c.rarity === 'normal' ? '' : 'gold'); addBlock(it.id); progress('block'); }
+  hud(); save();
+}
+function travel(to) {
+  sfx.portal(); releaseInput(); const f = $('flash'); f.classList.add('on');
+  setTimeout(() => { enterZone(to, true); f.classList.remove('on'); }, 160);
+  portalLock = 2;
+}
+function updateSlime(s, dt, t, now) {
+  if (!s.alive) { if (now > s.respawnAt) { [s.x, s.z] = freeSpot(cur); s.alive = true; s.grp.visible = true; } return; }
+  const dx = s.x - player.x, dz = s.z - player.z, d = Math.hypot(dx, dz) || 1;
+  if (d < 1.7 && !paused()) {
+    s.alive = false; s.grp.visible = false; s.respawnAt = now + 40000; state.coins += 150; state.score += 500; grabPaws();
+    burst(s.x, 1.2, s.z, '#ffd23f', 80, 9); sfx.slime(); toast('🍮 황금 젤리를 잡았다! 코인 +150', 'gold'); progress('slime'); hud(); save(); return;
+  }
+  let ax, az, sp;
+  if (d < 13 && !paused()) {
+    ax = dx / d; az = dz / d; sp = 6.9;
+    const edge = Math.max(Math.abs(s.x), Math.abs(s.z)) / 50, e2 = edge * edge * edge * 2.4;
+    ax += -s.x / 50 * e2 + -az * Math.sin(t * 1.7) * .5; az += -s.z / 50 * e2 + ax * Math.sin(t * 1.7) * .5;
+  } else {
+    if (t > s.turnAt) { s.dir = Math.random() * 6.283; s.turnAt = t + 2 + Math.random() * 3; }
+    ax = Math.cos(s.dir); az = Math.sin(s.dir); sp = 1.8;
+  }
+  const l = Math.hypot(ax, az) || 1; ax /= l; az /= l;
+  s.x = clamp(s.x + ax * sp * dt, -50, 50); s.z = clamp(s.z + az * sp * dt, -50, 50);
+  const hop = Math.abs(Math.sin(t * (sp > 3 ? 9 : 4)));
+  s.grp.position.set(s.x, 0, s.z); s.body.position.y = hop * .7; s.body.scale.set(1 + (1 - hop) * .12, .88 + hop * .2, 1 + (1 - hop) * .12);
+  s.body.rotation.y = Math.atan2(ax, az);
+}
+
+/* ================= menus ================= */
+function openModal(id) {
+  if (!started) return;
+  for (const m of document.querySelectorAll('.modal')) m.hidden = m.id !== id;
+  openModalId = id; app.classList.add('menu'); unlock(); releaseInput(); audio();
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  if (id === 'mShop') renderShop(); if (id === 'mBag') renderBag(); if (id === 'mPuzzle') { ensureSel(); paintGrid(); renderTray(); }
+}
+function closeModal() {
+  for (const m of document.querySelectorAll('.modal')) m.hidden = true;
+  openModalId = null; app.classList.remove('menu');
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+}
+for (const m of document.querySelectorAll('.modal')) m.addEventListener('pointerdown', e => { if (e.target === m && m.id !== 'start') closeModal(); });
+for (const b of document.querySelectorAll('[data-close]')) b.addEventListener('click', closeModal);
+$('bShop').onclick = () => openModal('mShop'); $('bBag').onclick = () => openModal('mBag');
+$('bPuzzle').onclick = () => openModal('mPuzzle'); $('bGuide').onclick = () => openModal('mGuide');
+$('bSound').onclick = () => { state.muted = !state.muted; hud(); save(); if (!state.muted) sfx.coin(); $('bSound').blur(); };
+
+/* ---- shop ---- */
+function renderShop() {
+  $('shopCoin').textContent = state.coins; let h = '';
+  if (!state.hasKey) h += `<div class="row"><div class="pic">🔑</div><div class="info"><b>우주 열쇠 <span class="tag legend">전설</span></b>
+    <small>얼음 왕국의 비밀 포탈을 열어 별빛 우주로 가요</small></div><div class="act"><span class="price">🪙 ${KEY_PRICE}</span>
+    <button class="btn sun" data-buy="key" type="button">구매</button></div></div>`;
+  for (const id in SHOP) {
+    const c = CATALOG[id], s = state.stock[id], out = s <= 0;
+    h += `<div class="row ${out ? 'out' : ''}"><div class="pic">${shapeHTML(id, 0, 13)}</div><div class="info"><b>${c.name}${c.rarity !== 'normal' ? ` <span class="tag ${c.rarity}">${RARITY[c.rarity]}</span>` : ''}</b>
+      <small>${c.desc}</small><small class="${out ? 'bad' : 'good'}">재고 ${s}/${SHOP[id].max}${out ? ' · 품절' : ''}</small></div>
+      <div class="act"><span class="price">🪙 ${SHOP[id].price}</span><button class="btn sun" data-buy="${id}" type="button" ${out ? 'disabled' : ''}>구매</button></div></div>`;
+  }
+  $('shopList').innerHTML = h;
+}
+$('shopList').addEventListener('click', e => {
+  const b = e.target.closest('[data-buy]'); if (!b) return; const id = b.dataset.buy;
+  const price = id === 'key' ? KEY_PRICE : SHOP[id].price;
+  if (id !== 'key' && state.stock[id] <= 0) { toast('재고가 없어요. 조금 기다리면 채워져요', 'bad'); sfx.no(); return; }
+  if (state.coins < price) { toast(`코인이 ${price - state.coins}개 모자라요`, 'bad'); sfx.no(); return; }
+  state.coins -= price; sfx.buy();
+  if (id === 'key') { state.hasKey = true; for (const z in zones) zones[z].portals.forEach(refreshPortal); toast('🔑 우주 열쇠 구매! 얼음 왕국의 비밀 포탈이 열렸어요', 'gold'); }
+  else { state.stock[id]--; addBlock(id); toast(`🎉 ${CATALOG[id].name} 구매 완료`, 'good'); }
+  hud(); save(); renderShop();
+});
+setInterval(() => {
+  let ch = false; for (const k in SHOP) if (state.stock[k] < SHOP[k].max) { state.stock[k]++; ch = true; }
+  if (ch) { save(); if (openModalId === 'mShop') renderShop(); }
+}, 30000);
+
+/* ---- bag + collection ---- */
+function renderBag() {
+  const ids = Object.keys(CATALOG), got = ids.filter(i => state.found[i]).length;
+  $('bookText').textContent = `블록 도감 ${got}/${ids.length} · 모두 찾으면 보너스 코인 1000개`;
+  $('book').innerHTML = ids.map(i => `<div class="slot ${state.found[i] ? 'got' : ''}" title="${state.found[i] ? CATALOG[i].name : '아직 못 찾은 블록'}">${shapeHTML(i, 0, 9, !state.found[i])}</div>`).join('');
+  const own = ids.filter(i => state.inv[i] > 0);
+  $('bagList').innerHTML = own.length ? own.map(i => { const c = CATALOG[i];
+    return `<div class="row"><div class="pic">${shapeHTML(i, 0, 13)}</div><div class="info"><b>${c.name} <span class="tag ${c.rarity}">${RARITY[c.rarity]}</span></b>
+      <small>${c.desc}</small><small class="good">${state.inv[i]}개 있어요</small></div>
+      <div class="act"><button class="btn candy" data-use="${i}" type="button">🧩 퍼즐</button><button class="btn" data-pop="${i}" type="button">🎆 폭죽</button></div></div>`; }).join('')
+    : '<div class="empty">가방이 비었어요. 빛기둥을 찾아 블록을 줍거나 상점에서 사요!</div>';
+}
+$('bagList').addEventListener('click', e => {
+  const u = e.target.closest('[data-use]'), p = e.target.closest('[data-pop]');
+  if (u) { sel = u.dataset.use; rot = 0; openModal('mPuzzle'); }
+  if (p) { const id = p.dataset.pop, c = CATALOG[id]; if (!(state.inv[id] > 0)) return;
+    state.inv[id]--; if (!state.inv[id]) delete state.inv[id];
+    const sc = c.cells.length * 40 * (c.rarity === 'epic' || c.rarity === 'legend' ? 3 : 1.5) | 0, co = c.cells.length * 6;
+    state.score += sc; state.coins += co; closeModal(); fireworks(c.color, 4); sfx.boom(); toast(`🎆 폭죽 팡! 점수 +${sc}, 코인 +${co}`, 'gold'); hud(); save(); }
+});
+
+/* ---- puzzle ---- */
+const gridEl = $('grid'), cellEls = [];
+for (let i = 0; i < 64; i++) { const d = document.createElement('div'); d.className = 'cell'; gridEl.appendChild(d); cellEls.push(d); }
+let sel = null, rot = 0, ghost = null, gridDown = false, clearArm = 0;
+function ensureSel() { if (!sel || !(state.inv[sel] > 0)) { sel = Object.keys(CATALOG).find(i => state.inv[i] > 0) || null; rot = 0; } }
+function paintGrid() {
+  const cells = (ghost && sel) ? cellsOf(sel, rot) : null, ok = cells && fits(cells, ghost[0], ghost[1]);
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    const el = cellEls[r * 8 + c], id = state.grid[r][c]; let cls = 'cell' + (el.classList.contains('boom') ? ' boom' : '');
+    if (id) { cls += ' full'; el.style.setProperty('--c', CATALOG[id].color); }
+    if (cells && cells.some(([x, y]) => ghost[0] + y === r && ghost[1] + x === c)) { cls += ' ghost' + (ok ? '' : ' bad'); if (!id) el.style.setProperty('--c', CATALOG[sel].color); }
+    el.className = cls;
+  }
+  $('pScore').textContent = state.pScore;
+}
+function renderTray() {
+  ensureSel(); const own = Object.keys(CATALOG).filter(i => state.inv[i] > 0);
+  $('tray').innerHTML = own.length ? own.map(i => `<button type="button" class="piece ${i === sel ? 'sel' : ''}" data-piece="${i}" aria-label="${CATALOG[i].name}">
+    ${shapeHTML(i, i === sel ? rot : 0, 13)}<span class="cnt">x${state.inv[i]}</span></button>`).join('')
+    : '<div class="empty">블록이 다 떨어졌어요! 탐험해서 줍거나 <b>🛒 상점</b>에서 사 와요</div>';
+  $('bRotate').disabled = !sel;
+}
+$('tray').addEventListener('click', e => { const b = e.target.closest('[data-piece]'); if (!b) return;
+  if (sel === b.dataset.piece) rot = (rot + 1) % 4; else { sel = b.dataset.piece; rot = 0; } sfx.place(); renderTray(); });
+$('bRotate').onclick = () => { if (!sel) return; rot = (rot + 1) % 4; sfx.place(); renderTray(); };
+$('bClear').onclick = () => {
+  const b = $('bClear');
+  if (Date.now() < clearArm) { state.grid = freshState().grid; clearArm = 0; b.textContent = '판 비우기'; paintGrid(); save(); toast('퍼즐판을 비웠어요'); }
+  else { clearArm = Date.now() + 3000; b.textContent = '정말 비울까요? 한 번 더!'; setTimeout(() => { if (clearArm && Date.now() >= clearArm) { clearArm = 0; b.textContent = '판 비우기'; } }, 3100); }
+};
+const fits = (cells, r0, c0) => cells.every(([x, y]) => r0 + y >= 0 && r0 + y < 8 && c0 + x >= 0 && c0 + x < 8 && !state.grid[r0 + y][c0 + x]);
+function originFrom(e) {
+  if (!sel) return null;
+  const rect = gridEl.getBoundingClientRect(), pitch = rect.width / 8;
+  if (e.clientX < rect.left - pitch || e.clientX > rect.right + pitch || e.clientY < rect.top - pitch || e.clientY > rect.bottom + pitch * 2) return null;
+  let c = Math.floor((e.clientX - rect.left) / pitch), r = Math.floor((e.clientY - rect.top) / pitch);
+  if (e.pointerType === 'touch') r -= 1;
+  const [w, h] = sizeOf(cellsOf(sel, rot));
+  return [clamp(r - Math.floor((h - 1) / 2), 0, 8 - h), clamp(c - Math.floor((w - 1) / 2), 0, 8 - w)];
+}
+gridEl.addEventListener('pointerdown', e => { gridDown = true; try { gridEl.setPointerCapture(e.pointerId); } catch (err) {}
+  if (!sel) { toast('놓을 블록이 없어요. 탐험해서 모아 와요!', 'bad'); sfx.no(); return; } ghost = originFrom(e); paintGrid(); });
+gridEl.addEventListener('pointermove', e => { if (e.pointerType !== 'mouse' && !gridDown) return; const g = originFrom(e);
+  if ((g && ghost && g[0] === ghost[0] && g[1] === ghost[1]) || (!g && !ghost)) return; ghost = g; paintGrid(); });
+gridEl.addEventListener('pointerup', e => { if (!gridDown) return; gridDown = false; const g = originFrom(e); ghost = e.pointerType === 'mouse' ? g : null; if (g) place(g[0], g[1]); else paintGrid(); });
+gridEl.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse' && !gridDown) { ghost = null; paintGrid(); } });
+gridEl.addEventListener('pointercancel', () => { gridDown = false; ghost = null; paintGrid(); });
+function place(r0, c0) {
+  if (!sel || !(state.inv[sel] > 0)) return;
+  const cells = cellsOf(sel, rot), id = sel;
+  if (!fits(cells, r0, c0)) { sfx.no(); gridEl.classList.remove('shake'); void gridEl.offsetWidth; gridEl.classList.add('shake'); paintGrid(); return; }
+  for (const [x, y] of cells) state.grid[r0 + y][c0 + x] = id;
+  state.inv[id]--; if (!state.inv[id]) delete state.inv[id];
+  state.score += cells.length * 10; state.pScore += cells.length * 10; sfx.place();
+  // completed lines
+  const rows = [], cols = [];
+  for (let i = 0; i < 8; i++) { if (state.grid[i].every(Boolean)) rows.push(i); if (state.grid.every(r => r[i])) cols.push(i); }
+  const n = rows.length + cols.length;
+  if (n) {
+    const hit = new Set(); rows.forEach(r => { for (let c = 0; c < 8; c++) hit.add(r * 8 + c); }); cols.forEach(c => { for (let r = 0; r < 8; r++) hit.add(r * 8 + c); });
+    hit.forEach(i => { state.grid[i / 8 | 0][i % 8] = null; const el = cellEls[i]; el.classList.add('boom'); setTimeout(() => { el.classList.remove('boom'); }, 430); });
+    const sc = 300 * n * n, co = 100 * n + 50 * n * (n - 1);
+    state.score += sc; state.pScore += sc; state.coins += co; sfx.clear(n); fireworks(CATALOG[id].color, Math.min(5, n + 1));
+    toast(n > 1 ? `🎉 ${n}줄 콤보 팡! 점수 +${sc}, 코인 +${co}` : `🎉 한 줄 팡! 점수 +${sc}, 코인 +${co}`, 'good'); progress('line', n);
+  }
+  ensureSel(); if (ghost && !sel) ghost = null;
+  paintGrid(); renderTray(); hud(); save();
+}
+
+/* ================= boot ================= */
+function begin() {
+  started = true; closeModal(); audio(); sfx.block();
+  const Z = ZONES[state.zone]; banner(`${Z.icon} ${Z.name}`);
+  if (matchMedia('(pointer:coarse)').matches) app.classList.add('touch');
+}
+$('bStart').onclick = begin;
+let resetArm = 0;
+$('bReset').onclick = () => {
+  if (Date.now() < resetArm) { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} const muted = state.muted; state = freshState(); state.muted = muted; hadSave = false;
+    for (const z in zones) zones[z].portals.forEach(refreshPortal); enterZone('forest'); newMission(); renderMission(); shown.coins = shown.score = -1; hud();
+    $('bReset').hidden = true; $('bStart').textContent = '▶ 탐험 시작'; }
+  else { resetArm = Date.now() + 3000; $('bReset').textContent = '정말 지울까요? 한 번 더 누르면 처음부터!'; setTimeout(() => { $('bReset').textContent = '처음부터 다시 하기'; }, 3000); }
+};
+function start(hot) {
+  load();
+  try { initWorld(); } catch (e) {
+    $('start').querySelector('.card').innerHTML = '<h2>3D 화면을 열 수 없어요</h2><p>이 기기나 브라우저에서 3D 그래픽(WebGL)이 꺼져 있어요. 크롬이나 사파리 최신 버전으로 열어 주세요.</p>'; return;
+  }
+  if (matchMedia('(pointer:coarse)').matches) app.classList.add('touch');
+  enterZone(state.zone); renderMission(); hud(); drawMap();
+  if (hadSave) { $('bStart').textContent = '▶ 이어서 탐험하기'; $('bReset').hidden = false; }
+  requestAnimationFrame(tick);
+  if (hot && hot.playing) begin();
+  window.addEventListener('pagehide', save);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { save(); releaseInput(); } });
+}
+function boot() {
+  const hotApi = window.claude && window.claude.hot;
+  if (hotApi && hotApi.snapshot) hotApi.snapshot(() => { save(); return { playing:started }; });
+  if (hotApi && hotApi.ready) hotApi.ready(start); else start((hotApi && hotApi.data) || {});
+}
+if (typeof THREE === 'undefined') {
+  $('start').querySelector('.card').innerHTML = '<h2>게임을 불러오지 못했어요</h2><p>인터넷 연결을 확인하고 새로고침해 주세요.</p>';
+} else {
+  const fontsReady = (document.fonts && document.fonts.load) ? document.fonts.load('40px Jua').catch(() => {}) : Promise.resolve();
+  Promise.race([fontsReady, new Promise(r => setTimeout(r, 1200))]).then(boot);
+}
+})();
+</script>
